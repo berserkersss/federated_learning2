@@ -39,7 +39,7 @@ def mnist_noniid(dataset, num_users):
 
     # sort labels
     idxs_labels = np.vstack((idxs, labels))
-    idxs_labels = idxs_labels[:,idxs_labels[1,:].argsort()]
+    #idxs_labels = idxs_labels[:,idxs_labels[1,:].argsort()]
     idxs = idxs_labels[0,:]
     temp_labels = idxs_labels[1,:]
 

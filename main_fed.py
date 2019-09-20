@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Python version: 3.6
+# 一层神经网络全连接，交叉熵训练模型
 
 import matplotlib
+import pandas as pd
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import copy
@@ -33,9 +36,11 @@ if __name__ == '__main__':
 
         # sample users
         #if args.iid:
-        dict_users_iid_temp = (mnist_iid(dataset_train, args.num_users))
+        dict_users_iid_temp = mnist_iid(dataset_train, args.num_users)
         #else:
         dict_users = mnist_noniid(dataset_train, args.num_users)
+
+        #dict_users_iid_temp = dict_users
     elif args.dataset == 'cifar':
         trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         dataset_train = datasets.CIFAR10('../data/cifar', train=True, download=True, transform=trans_cifar)
@@ -58,8 +63,8 @@ if __name__ == '__main__':
         len_in = 1
         for x in img_size:
             len_in *= x
-        net_glob_fl = MLP(dim_in=len_in, dim_hidden=64, dim_out=args.num_classes).to(args.device)
-        net_glob_cl = MLP(dim_in=len_in, dim_hidden=64, dim_out=args.num_classes).to(args.device)
+        net_glob_fl = MLP(dim_in=len_in, dim_out=args.num_classes).to(args.device)
+        net_glob_cl = MLP(dim_in=len_in, dim_out=args.num_classes).to(args.device)
     else:
         exit('Error: unrecognized model')
 
@@ -237,6 +242,7 @@ if __name__ == '__main__':
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.plot(mu_max_his, c="red")
+
     plt.xlabel('Iterations')
     plt.ylabel('Mu_max')
     plt.savefig('Figure/mu_max.png')
@@ -258,8 +264,22 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111)
     ax.plot(line1_iter_list, c=colors[0])
     plt.xlabel('Local_Iterations')
-    plt.ylabel('Grad')
+    plt.ylabel('Bound')
     plt.savefig('Figure/numerical _temp.png')
 
+    line2_iter_list = pd.DataFrame(line2_iter_list)
+    line2_iter_list.to_csv('csv/difference.csv')
+
+    sigma_max_his = pd.DataFrame(sigma_max_his)
+    sigma_max_his.to_csv('csv/sigma.csv')
+
+    beta_max_his = pd.DataFrame(beta_max_his)
+    beta_max_his.to_csv('csv/beta.csv')
+
+    mu_max_his = pd.DataFrame(mu_max_his)
+    mu_max_his.to_csv('csv/mu.csv')
+
+    line1_iter_list = pd.DataFrame(line1_iter_list)
+    line1_iter_list.to_csv('csv/Bound.csv')
 
 

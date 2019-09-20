@@ -77,13 +77,9 @@ class LocalUpdate(object):
 
 
                 temp1 = net.layer_input.weight.grad
-                temp2 = net.layer_hidden.weight.grad
-                log_probs.grad.shape
-                log_probs.grad.numpy()
-                temp1.shape
-                temp2.shape
+                #temp2 = net.layer_hidden.weight.grad
 
-                temp3 = torch.norm(temp1)+torch.norm(temp2) # compute delta w
+                temp3 = torch.norm(temp1) # compute delta w
                 temp4 = (temp5)/(temp3.numpy().item()) # compute the beta
                 #temp6 = temp5 *
 

@@ -212,6 +212,8 @@ if __name__ == '__main__':
         para_cl = w_cl_iter[i]['layer_input.weight']
         para_fl = w_fl_iter[i]['layer_input.weight']
         line2 = torch.norm(para_cl-para_fl)
+        temp = torch.norm(para_cl - para_fl, p=2, dim=1)
+        print(torch.mean(temp))
         line2_iter_list.append(line2.item())
 
     print('y_line1=',line1_iter_list)# numerical 

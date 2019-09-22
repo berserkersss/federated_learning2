@@ -123,8 +123,8 @@ if __name__ == '__main__':
     for iter in range(args.num_users):
         dict_users_iid.extend(dict_users_iid_temp[iter])
 
-    beta = float("inf")
-    lamb = -float("inf")
+    beta = -float("inf")
+    lamb = float("inf")
     Ld = []
 
 
@@ -133,7 +133,7 @@ if __name__ == '__main__':
             # CL setting
             glob_cl = CLUpdate(args=args, dataset=dataset_train, idxs=dict_users_iid)
             w_cl, loss_cl, delta_loss_cl= glob_cl.cltrain(net=copy.deepcopy(net_glob_cl).to(args.device))
-            net_glob_cl.load_state_dict(w_cl)  # update the CL w 注意这里需要在计算完Ld之后更新CL的w否则将会出现
+            net_glob_cl.load_state_dict(w_cl)  # update the CL w
 
             # FL setting
             # M clients local update

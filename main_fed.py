@@ -18,6 +18,7 @@ from utils.sampling import mnist_iid, mnist_noniid, cifar_iid
 from utils.options import args_parser
 from models.Update import LocalUpdate
 from models.Update import CLUpdate
+from models.Update import LocalCLUpdate
 from models.Nets import MLP, CNNMnist, CNNCifar
 from models.Fed import FedAvg
 from models.test import test_img
@@ -69,6 +70,7 @@ if __name__ == '__main__':
 
     net_glob_cl = copy.deepcopy(net_glob)
     net_glob_fl = copy.deepcopy(net_glob)
+    net_local_fl = [copy.deepcopy(net_glob) for i in range(args.num_users)]
     net_glob_fl.train()
     net_glob_cl.train()
 
@@ -105,10 +107,11 @@ if __name__ == '__main__':
     x_stat_loacals, pxm_locals =[],[]
     data_locals = [[] for i in range(args.epochs)]
     w_fl_iter,w_cl_iter = [], []
+    deltaloss_fl_iter, deltaloss_cl_iter = [], []
     beta_max_his, mu_max_his, sigma_max_his = [], [], []
     acc_train_cl_his, acc_train_fl_his = [], []
 
-    net_glob_fl.eval()
+    net_glob_cl.eval()
     acc_train_cl, loss_train_clxx = test_img(net_glob_cl, dataset_train, args)
     acc_test_cl, loss_test_clxx = test_img(net_glob_cl, dataset_test, args)
     acc_train_cl_his.append(acc_test_cl)
@@ -116,67 +119,70 @@ if __name__ == '__main__':
     print("Training accuracy: {:.2f}".format(acc_train_cl))
     print("Testing accuracy: {:.2f}".format(acc_test_cl))
 
-
     dict_users_iid = []
     for iter in range(args.num_users):
         dict_users_iid.extend(dict_users_iid_temp[iter])
-    # Centralized learning
-    for iter in range(args.epochs):
-        w_locals, loss_locals = [], []
-        glob_cl = CLUpdate(args=args, dataset=dataset_train, idxs=dict_users_iid)
-        w_cl, loss_cl = glob_cl.cltrain(net=copy.deepcopy(net_glob_cl).to(args.device))
-        w_cl_iter.append(copy.deepcopy(w_cl))
-        net_glob_cl.load_state_dict(w_cl)
-        loss_train_cl.append(loss_cl)  # loss of CL
-        print('cl,iter = ', iter, 'loss=', loss_cl)
 
+    beta = float("inf")
+    lamb = -float("inf")
+    Ld = []
+
+
+    for iter in range(args.epochs):  # num of iterations
+        for iter_local in range(args.local_ep):
+            # CL setting
+            glob_cl = CLUpdate(args=args, dataset=dataset_train, idxs=dict_users_iid)
+            w_cl, loss_cl, delta_loss_cl= glob_cl.cltrain(net=copy.deepcopy(net_glob_cl).to(args.device))
+            net_glob_cl.load_state_dict(w_cl)  # update the CL w 注意这里需要在计算完Ld之后更新CL的w否则将会出现
+
+            # FL setting
+            # M clients local update
+            m = args.num_users  # num of selected users
+            idxs_users = np.random.choice(range(args.num_users), m, replace=False)  # select randomly m clients
+            Ld_temp = []
+            for idx in idxs_users:
+                glob_fl = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])  # data select
+                w_fl, loss, delta_loss_fl= glob_fl.train(net=copy.deepcopy(net_local_fl[idx]).to(args.device))
+                w_locals.append(copy.deepcopy(w_fl))  # collect local model
+                net_local_fl[idx].load_state_dict(w_fl)  # update the CL w
+
+                loss_locals.append(loss)  # collect local loss fucntion
+
+                # Compute beta and lambda
+                temp = torch.norm(delta_loss_cl - delta_loss_fl).item()/torch.norm(w_cl['layer_input.weight'] - w_fl['layer_input.weight']).item()
+                if temp > beta:
+                    beta = temp
+                if temp < lamb:
+                    lamb = temp
+
+                loss_fl = sum(loss_locals) / len(loss_locals)
+
+                # compute Ld
+                local = LocalCLUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])  # data select
+                delta_loss = local.train(net=copy.deepcopy(net_glob_cl).to(args.device))
+                Ld_temp.append(torch.norm(delta_loss_fl - delta_loss).item())
+
+            Ld.append(np.mean(Ld_temp))
+
+        # CL
+        print('cl,iter = ', iter, 'loss=', loss_cl)
         # testing
-        acc_train_cl, loss_train_clxx = test_img(net_glob_cl, dataset_train, args)
         acc_test_cl, loss_test_clxx = test_img(net_glob_cl, dataset_test, args)
-        print("Training accuracy: {:.2f}".format(acc_train_cl))
         print("Testing accuracy: {:.2f}".format(acc_test_cl))
         acc_train_cl_his.append(acc_test_cl.item())
+        w_cl_iter.append(copy.deepcopy(net_glob_cl.state_dict()))
 
-
-    # FL setting
-    for iter in range(args.epochs): # num of iterations
-        w_locals, loss_locals, d_locals  = [], [], []
-        beta_locals, mu_locals, sigma_locals = [], [], []
-        x_stat_loacals, pxm_locals =[],[]
-
-        # M clients local update
-        m = max(int(args.frac * args.num_users), 1) # num of selected users
-        idxs_users = np.random.choice(range(args.num_users), m, replace=False) # select randomly m clients
-        for idx in idxs_users:
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx]) # data select
-            w, loss, delta_loss, x_stat, d_local = local.train(net=copy.deepcopy(net_glob_fl).to(args.device))
-            x_value, count = np.unique(x_stat,return_counts=True) # compute the P(Xm)
-            w_locals.append(copy.deepcopy(w))# collect local model
-            loss_locals.append(copy.deepcopy(loss))#collect local loss fucntion
-            d_locals.extend(d_local)# collect the isx of local training data in FL
-
-            x_stat_loacals.append(x_stat) # Xm
-            pxm_locals.append(np.array(count/(np.sum(count)))) #P(Xm)
-
-        data_locals[iter] = d_locals#collect dta
-        w_glob_fl = FedAvg(w_locals)# update the global model
-        net_glob_fl.load_state_dict(w_glob_fl)# copy weight to net_glob
+        # FedAvg
+        w_glob_fl = FedAvg(w_locals)  # update the global model
+        for idx in range(args.num_users):
+            net_local_fl[idx].load_state_dict(w_glob_fl)
+        net_glob_fl.load_state_dict(w_glob_fl)  # copy weight to net_glob
         w_fl_iter.append(copy.deepcopy(w_glob_fl))
-
-        loss_fl = sum(loss_locals) / len(loss_locals)
-        loss_train_fl.append(loss_fl) # loss of FL
-
-        # compute P(Xg)
-        xg_value, xg_count = np.unique(x_stat_loacals,return_counts=True)
-        xg_count = np.array(xg_count)/(np.sum(xg_count))
-        print('fl,iter = ',iter,'loss=',loss_fl)
-
+        print('fl,iter = ', iter, 'loss=', loss_fl)
 
         # testing
         net_glob_fl.eval()
-        acc_train_fl, loss_train_flxx = test_img(net_glob_fl, dataset_train, args)
         acc_test_fl, loss_test_flxx = test_img(net_glob_fl, dataset_test, args)
-        print("Training accuracy: {:.2f}".format(acc_train_fl))
         print("Testing accuracy: {:.2f}".format(acc_test_fl))
         acc_train_fl_his.append(acc_test_fl.item())
 
@@ -188,42 +194,17 @@ if __name__ == '__main__':
         para_cl = w_cl_iter[i]['layer_input.weight']
         para_fl = w_fl_iter[i]['layer_input.weight']
         line2 = torch.norm(para_cl-para_fl)
-        temp = torch.norm(para_cl - para_fl, p=2, dim=1)
-        print(torch.mean(temp))
         line2_iter_list.append(line2.item())
 
-    print('y_line1=',line1_iter_list)# numerical 
-    print('y_line2=',line2_iter_list) # simulation 
+    print('y_line2=',line2_iter_list) # simulation
+    print('Ld=', Ld)
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.plot(line2_iter_list, c="red")
-    plt.xlabel('Iterations')
+    plt.xlabel('Epochs')
     plt.ylabel('Difference')
     plt.savefig('Figure/different.png')
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(beta_max_his, c="red")
-    plt.xlabel('Iterations')
-    plt.ylabel('Beta_max')
-    plt.savefig('Figure/beta_max.png')
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(sigma_max_his, c="red")
-    plt.xlabel('Iterations')
-    plt.ylabel('Sigma_max')
-    plt.savefig('Figure/sigma_max.png')
-
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(mu_max_his, c="red")
-
-    plt.xlabel('Iterations')
-    plt.ylabel('Mu_max')
-    plt.savefig('Figure/mu_max.png')
 
 
     colors = ["blue", "red"]
@@ -237,27 +218,17 @@ if __name__ == '__main__':
     plt.ylabel('Accuracy')
     plt.savefig('Figure/Accuracy_non_iid2_temp.png')
 
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(line1_iter_list, c=colors[0])
-    plt.xlabel('Local_Iterations')
-    plt.ylabel('Bound')
-    plt.savefig('Figure/numerical _temp.png')
-
     line2_iter_list = pd.DataFrame(line2_iter_list)
     line2_iter_list.to_csv('csv/difference.csv')
 
-    sigma_max_his = pd.DataFrame(sigma_max_his)
-    sigma_max_his.to_csv('csv/sigma.csv')
+    beta = pd.DataFrame(beta)
+    beta.to_csv('csv/beta.csv')
 
-    beta_max_his = pd.DataFrame(beta_max_his)
-    beta_max_his.to_csv('csv/beta.csv')
+    lamb = pd.DataFrame(lamb)
+    lamb.to_csv('csv/lambda.csv')
 
-    mu_max_his = pd.DataFrame(mu_max_his)
-    mu_max_his.to_csv('csv/mu.csv')
 
-    line1_iter_list = pd.DataFrame(line1_iter_list)
-    line1_iter_list.to_csv('csv/Bound.csv')
+
+
 
 

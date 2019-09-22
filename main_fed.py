@@ -63,11 +63,12 @@ if __name__ == '__main__':
         len_in = 1
         for x in img_size:
             len_in *= x
-        net_glob_fl = MLP(dim_in=len_in, dim_out=args.num_classes).to(args.device)
-        net_glob_cl = MLP(dim_in=len_in, dim_out=args.num_classes).to(args.device)
+        net_glob = MLP(dim_in=len_in, dim_out=args.num_classes).to(args.device)
     else:
         exit('Error: unrecognized model')
 
+    net_glob_cl = copy.deepcopy(net_glob)
+    net_glob_fl = copy.deepcopy(net_glob)
     net_glob_fl.train()
     net_glob_cl.train()
 
@@ -148,15 +149,12 @@ if __name__ == '__main__':
         idxs_users = np.random.choice(range(args.num_users), m, replace=False) # select randomly m clients
         for idx in idxs_users:
             local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx]) # data select
-            w, loss, delta_bloss, beta, x_stat, d_local = local.train(net=copy.deepcopy(net_glob_fl).to(args.device))
+            w, loss, delta_loss, x_stat, d_local = local.train(net=copy.deepcopy(net_glob_fl).to(args.device))
             x_value, count = np.unique(x_stat,return_counts=True) # compute the P(Xm)
             w_locals.append(copy.deepcopy(w))# collect local model
             loss_locals.append(copy.deepcopy(loss))#collect local loss fucntion
             d_locals.extend(d_local)# collect the isx of local training data in FL
 
-            beta_locals.append(np.max(beta))# beta value
-            mu_locals.append(np.max(delta_bloss)) # mu value
-            sigma_locals.append(np.std(delta_bloss))#sigma value
             x_stat_loacals.append(x_stat) # Xm
             pxm_locals.append(np.array(count/(np.sum(count)))) #P(Xm)
 
@@ -173,18 +171,6 @@ if __name__ == '__main__':
         xg_count = np.array(xg_count)/(np.sum(xg_count))
         print('fl,iter = ',iter,'loss=',loss_fl)
 
-        # compute beta, mu, sigma
-        beta_max = (np.max(beta_locals))
-        mu_max = (np.max(mu_locals))
-        sigma_max = (np.max(sigma_locals))
-
-        beta_max_his.append(np.max(beta_locals))
-        mu_max_his.append(np.max(mu_locals))
-        sigma_max_his.append(np.max(sigma_locals))
-
-        # print('beta=', beta_max)
-        # print('mu=', mu_max)
-        # print('sigma=', sigma_max)
 
         # testing
         net_glob_fl.eval()
@@ -192,16 +178,6 @@ if __name__ == '__main__':
         acc_test_fl, loss_test_flxx = test_img(net_glob_fl, dataset_test, args)
         print("Training accuracy: {:.2f}".format(acc_train_fl))
         print("Testing accuracy: {:.2f}".format(acc_test_fl))
-
-        line1_list=[]
-        # the weight divergence of numerical line
-        for j in range(len(pxm_locals)):
-            lditem1 = sigma_max*(np.sqrt(2/(np.pi*50*(iter+1)))+np.sqrt(2/(np.pi*50*m*(iter+1))))
-            lditem2 = mu_max*(np.abs(pxm_locals[j]-xg_count))
-            lditem3= 50*(iter+1)*(((1+eta*beta_max)**((iter+1)*Nepoch))-1)/(50*m*(iter+1)*beta_max) # 50 is batch size (10)* num of epoch (5)
-            line1 = lditem3*(lditem1+lditem2)
-            line1_list.append(line1) # m clients
-        line1_iter_list.append(np.sum(line1_list)) # iter elements
         acc_train_fl_his.append(acc_test_fl.item())
 
 

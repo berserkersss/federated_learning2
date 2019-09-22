@@ -40,6 +40,9 @@ class LocalUpdate(object):
         epoch_loss = []
         img_train_list = []
 
+        fl_grad = []
+        delta_loss = []
+
         dgrad_bl = []
         all_x_list = []
 
@@ -71,20 +74,9 @@ class LocalUpdate(object):
                 loss.backward()
                 optimizer.step()
 
-                next_log = torch.norm(log_probs.grad).numpy().item()
-                temp5 = next_log-last_log
-                last_log = next_log
+                delta_loss = net.layer_input.weight.grad
 
 
-                temp1 = net.layer_input.weight.grad
-                #temp2 = net.layer_hidden.weight.grad
-
-                temp3 = torch.norm(temp1) # compute delta w
-                temp4 = (temp5)/(temp3.numpy().item()) # compute the beta
-                #temp6 = temp5 *
-
-                batch_loss_grad.append(torch.norm(log_probs.grad).numpy().item()) # compute the grad of bacth loss 
-                beta_list.append(temp4)# beta list 
                 
 
                 if self.args.verbose and batch_idx % 10 == 0:
@@ -94,7 +86,7 @@ class LocalUpdate(object):
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
 
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), batch_loss_grad, beta_list, all_x_list, img_train_list
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), delta_loss, all_x_list, img_train_list
 
 class CLUpdate(object):
     def __init__(self, args, dataset=None, idxs=None):

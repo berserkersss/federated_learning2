@@ -129,6 +129,7 @@ if __name__ == '__main__':
 
 
     for iter in range(args.epochs):  # num of iterations
+        w_locals = []
         for iter_local in range(args.local_ep):
             # CL setting
             glob_cl = CLUpdate(args=args, dataset=dataset_train, idxs=dict_users_iid)
@@ -143,8 +144,9 @@ if __name__ == '__main__':
             for idx in idxs_users:
                 glob_fl = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])  # data select
                 w_fl, loss, delta_loss_fl= glob_fl.train(net=copy.deepcopy(net_local_fl[idx]).to(args.device))
-                w_locals.append(copy.deepcopy(w_fl))  # collect local model
-                net_local_fl[idx].load_state_dict(w_fl)  # update the CL w
+                if iter_local == args.local_ep - 1:
+                    w_locals.append(copy.deepcopy(w_fl))  # collect local model
+                net_local_fl[idx].load_state_dict(w_fl)  # update the FL w
 
                 loss_locals.append(loss)  # collect local loss fucntion
 
@@ -185,6 +187,9 @@ if __name__ == '__main__':
         acc_test_fl, loss_test_flxx = test_img(net_glob_fl, dataset_test, args)
         print("Testing accuracy: {:.2f}".format(acc_test_fl))
         acc_train_fl_his.append(acc_test_fl.item())
+
+        print(beta)
+        print(lamb)
 
 
 
